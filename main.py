@@ -23,17 +23,32 @@ def get_random_sp500_symbols_from_wikipedia(n: int = 10) -> list[str]:
     """
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
-    # Lee la primera tabla de la página (la que contiene los tickers)
-    tables = pd.read_html(url)
+    # Hacemos la petición HTTP con cabecera de navegador para evitar el 403
+    headers = {"User-Agent": "Mozilla/5.0"}
+    resp = requests.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+
+    # Le pasamos el HTML a pandas a través de un buffer
+    html_buffer = StringIO(resp.text)
+    tables = pd.read_html(html_buffer)  # si quieres, puedes usar flavor="html5lib"
+
+    # La primera tabla de la página es la del S&P 500
     sp500_table = tables[0]
 
-    # Extrae la columna de símbolos
+    # Extraemos la columna de símbolos
     tickers = sp500_table["Symbol"].tolist()
 
-    # Limpieza ligera (por si hubiera espacios o caracteres extraños)
-    tickers = [t.strip().upper() for t in tickers if isinstance(t, str) and t.strip() != ""]
+    # Limpieza ligera: mayúsculas, sin espacios vacíos
+    tickers = [
+        t.strip().upper()
+        for t in tickers
+        if isinstance(t, str) and t.strip() != ""
+    ]
 
-    # Elige aleatoriamente n tickers distintos
+    # Por seguridad, eliminamos duplicados manteniendo orden
+    tickers = list(dict.fromkeys(tickers))
+
+    # Ajustamos n si por lo que sea hay menos de n
     if len(tickers) < n:
         n = len(tickers)
 
