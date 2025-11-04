@@ -1,4 +1,16 @@
+# main.py
+
+import os
+import sys
+import random
 from datetime import date
+
+import pandas as pd
+import requests
+
+# Aseguramos que se pueda importar el paquete src cuando ejecutas `python main.py`
+sys.path.append(os.path.dirname(__file__))
+
 from src.manager import DataManager
 from src.sources.source_yahoo import YahooSource
 from src.sources.source_ibkr import IBKRSource
@@ -6,9 +18,43 @@ from src.sources.source_fred import FREDSource
 from src.portfolio import Portfolio
 
 
-def pretty_preview(series_list, max_points=3):
+def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
+    """
+    Descarga la lista de empresas del S&P 500 desde Finviz
+    y devuelve `n` tickers elegidos al azar.
+
+    Usa pandas.read_html sobre el HTML de Finviz.
+    """
+    url = "https://finviz.com/screener.ashx?v=111&f=idx_sp500"
+    headers = {"User-Agent": "Mozilla/5.0"}  # para que Finviz no bloquee la petición
+
+    resp = requests.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+
+    tables = pd.read_html(resp.text)
+    tickers = None
+
+    # Buscamos la tabla que tenga una columna llamada "Ticker"
+    for df in tables:
+        if "Ticker" in df.columns:
+            tickers = df["Ticker"].tolist()
+            break
+
+    if not tickers:
+        raise ValueError("No se pudo encontrar la columna 'Ticker' en Finviz.")
+
+    if n > len(tickers):
+        n = len(tickers)
+
+    return random.sample(tickers, k=n)
+
+
+def pretty_preview(series_list, max_points: int = 3):
+    """
+    Muestra por consola un resumen sencillo de cada PriceSeries.
+    """
     for s in series_list:
-        print("="*60)
+        print("=" * 60)
         print(f"Symbol:      {s.symbol}")
         print(f"Source:      {s.source}")
         print(f"Asset Type:  {s.asset_type}")
@@ -29,12 +75,21 @@ def pretty_preview(series_list, max_points=3):
 
 
 if __name__ == "__main__":
-    # 1. Creamos fuentes
-    yahoo = YahooSource()
-    ibkr  = IBKRSource()
-    fred  = FREDSource(api_key=None)  # opcionalmente pon tu API key de FRED
+    # --------------------------------------------------
+    # 1. Obtener N activos aleatorios del S&P 500 (desde Finviz)
+    # --------------------------------------------------
+    N_ASSETS = 10
+    print(f"Obteniendo {N_ASSETS} tickers aleatorios del S&P 500 desde Finviz...")
+    sp500_symbols = get_random_sp500_symbols_from_finviz(N_ASSETS)
+    print("Tickers elegidos:", sp500_symbols)
 
-    # 2. Creamos el orquestador
+    # --------------------------------------------------
+    # 2. Crear fuentes (APIs) y el DataManager
+    # --------------------------------------------------
+    yahoo = YahooSource()
+    ibkr = IBKRSource()
+    fred = FREDSource(api_key=None)  # si tienes API key de FRED, ponla aquí
+
     manager = DataManager(
         sources={
             "yahoo": yahoo,
@@ -43,61 +98,59 @@ if __name__ == "__main__":
         }
     )
 
-    # 3. Definimos rango de fechas
-    start_date = date(2025, 10, 1)
-    end_date   = date(2025, 10, 10)
+    # --------------------------------------------------
+    # 3. Definir rango de fechas para histórico
+    # --------------------------------------------------
+    start_date = date(2024, 1, 1)
+    end_date = date(2024, 12, 31)
 
-    # 4. Pedimos varias cosas a la vez
-    reqs = [
+    # --------------------------------------------------
+    # 4. Pedir histórico de los N activos a Yahoo a través del DataManager
+    # --------------------------------------------------
+    requests_list = [
         {
             "source": "yahoo",
-            "symbols": ["AAPL", "MSFT"],
+            "symbols": sp500_symbols,
             "start": start_date,
             "end": end_date,
             "asset_type": "stock",
-        },
-        {
-            "source": "ibkr",
-            "symbols": ["TEST_INDEX"],
-            "start": start_date,
-            "end": end_date,
-            "asset_type": "index",
-        },
-        {
-            "source": "fred",
-            "symbols": ["DFF"],  # Effective Federal Funds Rate
-            "start": start_date,
-            "end": end_date,
-            "asset_type": "macro",
-        },
+        }
     ]
 
-    all_series = manager.fetch_multiple_sources(reqs)
+    print("\nDescargando datos históricos desde Yahoo Finance...")
+    all_series = manager.fetch_multiple_sources(requests_list)
 
-    # 5. Vista previa
-    pretty_preview(all_series)
+    print(f"Se han obtenido {len(all_series)} series de precios.\n")
+    pretty_preview(all_series, max_points=2)
 
-    # 6. Creamos una cartera de ejemplo con 2 activos reales (AAPL/MSFT)
-    #    NOTA: aquí estoy asumiendo que all_series[0] = AAPL, all_series[1] = MSFT.
-    #    En código serio, haríamos una búsqueda por symbol.
-    assets = {
-        all_series[0].symbol: {
-            "series": all_series[0],
-            "weight": 0.5
-        },
-        all_series[1].symbol: {
-            "series": all_series[1],
-            "weight": 0.5
-        },
-    }
+    # --------------------------------------------------
+    # 5. Asignar pesos aleatorios a cada activo y construir la cartera
+    # --------------------------------------------------
+    print("\nConstruyendo la cartera con pesos aleatorios...")
+
+    raw_weights = [random.random() for _ in all_series]
+    total_w = sum(raw_weights)
+    norm_weights = [w / total_w for w in raw_weights]
+
+    assets = {}
+    for s, w in zip(all_series, norm_weights):
+        assets[s.symbol] = {
+            "series": s,
+            "weight": w,
+        }
 
     portfolio = Portfolio(assets=assets)
 
-    # 7. Report en markdown
-    print("\n\n=== PORTFOLIO REPORT (Markdown) ===\n")
-    print(portfolio.report(horizon_days=30))
+    # --------------------------------------------------
+    # 6. Generar informe en Markdown
+    # --------------------------------------------------
+    print("\n\n=== INFORME DE CARTERA (Markdown) ===\n")
+    report_md = portfolio.report(horizon_days=30)
+    print(report_md)
 
-    # 8. Plot de Monte Carlo
-    # Esto abre una ventana gráfica si estás en un notebook / entorno interactivo.
-    # En consola pura puede que no muestre la figura hasta que uses plt.show().
+    # --------------------------------------------------
+    # 7. Generar gráfico con la simulación Monte Carlo
+    # --------------------------------------------------
+    print("\nMostrando gráfico de simulación Monte Carlo de la cartera...")
     portfolio.plots_report(days=30, n_paths=200, show_mean=True)
+
