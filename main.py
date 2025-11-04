@@ -1,16 +1,4 @@
 # main.py
-
-import os
-import sys
-import random
-from datetime import date
-from io import StringIO
-import pandas as pd
-import requests
-
-# Aseguramos que se pueda importar el paquete src cuando ejecutas `python main.py`
-sys.path.append(os.path.dirname(__file__))
-
 from src.manager import DataManager
 from src.sources.source_yahoo import YahooSource
 from src.sources.source_ibkr import IBKRSource
@@ -20,80 +8,36 @@ from io import StringIO
 import pandas as pd
 import random
 import requests
+import os
+import sys
+from datetime import date
 
-from io import StringIO
-import pandas as pd
-import random
-import requests
+sys.path.append(os.path.dirname(__file__))
 
-
-def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
+def get_random_sp500_symbols_from_wikipedia(n: int = 10) -> list[str]:
     """
-    Descarga la lista de empresas del S&P 500 desde Finviz
+    Descarga la lista de empresas del S&P 500 desde Wikipedia
     y devuelve `n` tickers válidos elegidos al azar.
 
-    Filtra:
-    - NaN
-    - cadenas vacías
-    - '(Elite only)'
-    - textos de interfaz (con espacios, minúsculas, etc.)
-    - símbolos con caracteres raros (., espacio, etc.)
+    Fuente: https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
     """
-    url = "https://finviz.com/screener.ashx?v=111&f=idx_sp500"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
-    resp = requests.get(url, headers=headers, timeout=10)
-    resp.raise_for_status()
+    # Lee la primera tabla de la página (la que contiene los tickers)
+    tables = pd.read_html(url)
+    sp500_table = tables[0]
 
-    # Evitamos el FutureWarning usando StringIO
-    html_buffer = StringIO(resp.text)
+    # Extrae la columna de símbolos
+    tickers = sp500_table["Symbol"].tolist()
 
-    # Usamos html5lib como parser (ya que lo tienes instalado)
-    tables = pd.read_html(html_buffer, flavor="html5lib")
+    # Limpieza ligera (por si hubiera espacios o caracteres extraños)
+    tickers = [t.strip().upper() for t in tickers if isinstance(t, str) and t.strip() != ""]
 
-    tickers_raw = []
+    # Elige aleatoriamente n tickers distintos
+    if len(tickers) < n:
+        n = len(tickers)
 
-    # Recorremos TODAS las tablas que tengan columna 'Ticker'
-    for df in tables:
-        if "Ticker" in df.columns:
-            tickers_raw.extend(df["Ticker"].tolist())
-
-    if not tickers_raw:
-        raise ValueError("No se pudo encontrar la columna 'Ticker' en Finviz.")
-
-    tickers_clean = []
-    for t in tickers_raw:
-        if not isinstance(t, str):
-            continue
-
-        t = t.strip()
-        if t == "":
-            continue
-        if t == "(Elite only)":
-            continue
-
-        # FILTROS DUROS:
-        # 1. Todo mayúsculas (evita 'Ticker', 'export', frases largas)
-        if not t.isupper():
-            continue
-
-        # 2. Solo letras (sin espacios, sin números, sin símbolos)
-        if not t.isalpha():
-            continue
-
-        # 3. Longitud razonable para un ticker (1 a 5 caracteres)
-        if not (1 <= len(t) <= 5):
-            continue
-
-        tickers_clean.append(t)
-
-    # Eliminar duplicados manteniendo orden
-    tickers_clean = list(dict.fromkeys(tickers_clean))
-
-    if len(tickers_clean) < n:
-        n = len(tickers_clean)
-
-    return random.sample(tickers_clean, k=n)
+    return random.sample(tickers, k=n)
 
 
 def pretty_preview(series_list, max_points: int = 3):
@@ -123,11 +67,11 @@ def pretty_preview(series_list, max_points: int = 3):
 
 if __name__ == "__main__":
     # --------------------------------------------------
-    # 1. Obtener N activos aleatorios del S&P 500 (desde Finviz)
+    # 1. Obtener N activos aleatorios del S&P 500 (desde Wikipedia)
     # --------------------------------------------------
     N_ASSETS = 10
-    print(f"Obteniendo {N_ASSETS} tickers aleatorios del S&P 500 desde Finviz...")
-    sp500_symbols = get_random_sp500_symbols_from_finviz(N_ASSETS)
+    print(f"Obteniendo {N_ASSETS} tickers aleatorios del S&P 500...")
+    sp500_symbols = get_random_sp500_symbols_from_wikipedia(N_ASSETS)
     print("Tickers elegidos:", sp500_symbols)
 
     # --------------------------------------------------
