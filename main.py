@@ -21,11 +21,23 @@ import pandas as pd
 import random
 import requests
 
+from io import StringIO
+import pandas as pd
+import random
+import requests
+
+
 def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
     """
     Descarga la lista de empresas del S&P 500 desde Finviz
     y devuelve `n` tickers válidos elegidos al azar.
-    Filtra NaN, '(Elite only)' y otros valores no válidos.
+
+    Filtra:
+    - NaN
+    - cadenas vacías
+    - '(Elite only)'
+    - textos de interfaz (con espacios, minúsculas, etc.)
+    - símbolos con caracteres raros (., espacio, etc.)
     """
     url = "https://finviz.com/screener.ashx?v=111&f=idx_sp500"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -36,27 +48,47 @@ def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
     # Evitamos el FutureWarning usando StringIO
     html_buffer = StringIO(resp.text)
 
-    # Usamos el parser html5lib para no depender de lxml
+    # Usamos html5lib como parser (ya que lo tienes instalado)
     tables = pd.read_html(html_buffer, flavor="html5lib")
 
-    tickers_raw = None
+    tickers_raw = []
+
+    # Recorremos TODAS las tablas que tengan columna 'Ticker'
     for df in tables:
         if "Ticker" in df.columns:
-            tickers_raw = df["Ticker"].tolist()
-            break
+            tickers_raw.extend(df["Ticker"].tolist())
 
     if not tickers_raw:
         raise ValueError("No se pudo encontrar la columna 'Ticker' en Finviz.")
 
-    # Limpieza: nos quedamos solo con strings válidos
     tickers_clean = []
     for t in tickers_raw:
-        if isinstance(t, str) and t.strip() != "" and t != "(Elite only)":
-            # opcional: filtrar símbolos con caracteres raros si no quieres complicarte
-            # por ejemplo, excluir los que tienen '.'
-            if "." in t:
-                continue
-            tickers_clean.append(t.strip())
+        if not isinstance(t, str):
+            continue
+
+        t = t.strip()
+        if t == "":
+            continue
+        if t == "(Elite only)":
+            continue
+
+        # FILTROS DUROS:
+        # 1. Todo mayúsculas (evita 'Ticker', 'export', frases largas)
+        if not t.isupper():
+            continue
+
+        # 2. Solo letras (sin espacios, sin números, sin símbolos)
+        if not t.isalpha():
+            continue
+
+        # 3. Longitud razonable para un ticker (1 a 5 caracteres)
+        if not (1 <= len(t) <= 5):
+            continue
+
+        tickers_clean.append(t)
+
+    # Eliminar duplicados manteniendo orden
+    tickers_clean = list(dict.fromkeys(tickers_clean))
 
     if len(tickers_clean) < n:
         n = len(tickers_clean)
