@@ -4,7 +4,7 @@ import os
 import sys
 import random
 from datetime import date
-
+from io import StringIO
 import pandas as pd
 import requests
 
@@ -22,19 +22,20 @@ def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
     """
     Descarga la lista de empresas del S&P 500 desde Finviz
     y devuelve `n` tickers elegidos al azar.
-
-    Usa pandas.read_html sobre el HTML de Finviz.
     """
     url = "https://finviz.com/screener.ashx?v=111&f=idx_sp500"
-    headers = {"User-Agent": "Mozilla/5.0"}  # para que Finviz no bloquee la petición
+    headers = {"User-Agent": "Mozilla/5.0"}
 
     resp = requests.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
 
-    tables = pd.read_html(resp.text)
-    tickers = None
+    # StringIO para evitar el FutureWarning
+    html_buffer = StringIO(resp.text)
 
-    # Buscamos la tabla que tenga una columna llamada "Ticker"
+    # Usamos el parser 'html5lib' para no depender de lxml
+    tables = pd.read_html(html_buffer, flavor="html5lib")
+
+    tickers = None
     for df in tables:
         if "Ticker" in df.columns:
             tickers = df["Ticker"].tolist()
@@ -47,7 +48,6 @@ def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
         n = len(tickers)
 
     return random.sample(tickers, k=n)
-
 
 def pretty_preview(series_list, max_points: int = 3):
     """
