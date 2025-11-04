@@ -16,12 +16,16 @@ from src.sources.source_yahoo import YahooSource
 from src.sources.source_ibkr import IBKRSource
 from src.sources.source_fred import FREDSource
 from src.portfolio import Portfolio
-
+from io import StringIO
+import pandas as pd
+import random
+import requests
 
 def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
     """
     Descarga la lista de empresas del S&P 500 desde Finviz
-    y devuelve `n` tickers elegidos al azar.
+    y devuelve `n` tickers válidos elegidos al azar.
+    Filtra NaN, '(Elite only)' y otros valores no válidos.
     """
     url = "https://finviz.com/screener.ashx?v=111&f=idx_sp500"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -29,25 +33,36 @@ def get_random_sp500_symbols_from_finviz(n: int = 10) -> list[str]:
     resp = requests.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
 
-    # StringIO para evitar el FutureWarning
+    # Evitamos el FutureWarning usando StringIO
     html_buffer = StringIO(resp.text)
 
-    # Usamos el parser 'html5lib' para no depender de lxml
+    # Usamos el parser html5lib para no depender de lxml
     tables = pd.read_html(html_buffer, flavor="html5lib")
 
-    tickers = None
+    tickers_raw = None
     for df in tables:
         if "Ticker" in df.columns:
-            tickers = df["Ticker"].tolist()
+            tickers_raw = df["Ticker"].tolist()
             break
 
-    if not tickers:
+    if not tickers_raw:
         raise ValueError("No se pudo encontrar la columna 'Ticker' en Finviz.")
 
-    if n > len(tickers):
-        n = len(tickers)
+    # Limpieza: nos quedamos solo con strings válidos
+    tickers_clean = []
+    for t in tickers_raw:
+        if isinstance(t, str) and t.strip() != "" and t != "(Elite only)":
+            # opcional: filtrar símbolos con caracteres raros si no quieres complicarte
+            # por ejemplo, excluir los que tienen '.'
+            if "." in t:
+                continue
+            tickers_clean.append(t.strip())
 
-    return random.sample(tickers, k=n)
+    if len(tickers_clean) < n:
+        n = len(tickers_clean)
+
+    return random.sample(tickers_clean, k=n)
+
 
 def pretty_preview(series_list, max_points: int = 3):
     """
